@@ -1,4 +1,5 @@
 """Local Mac watcher: persistent Chrome session, no cloud CAPTCHA bypass."""
+import fcntl
 import getpass
 import hashlib
 import json
@@ -54,6 +55,12 @@ def save(state):
     temporary.replace(STATE)
 
 def main():
+    lock = open(APP / "watch.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("A watcher is already running. Close the other watcher before starting another.")
+        return
     configure_mail()
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
     with sync_playwright() as p:
