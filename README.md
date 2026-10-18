@@ -8,7 +8,7 @@ The signed-in Chrome session successfully opened Ajax–ADO Den Haag, 22 Novembe
 The best-available-seat table showed Regulier, category 405 406 420 421 (low), EUR 52, with quantity options 0 and 1. This is below the alert threshold.
 The table URL and DOM selectors were inspected on the real event.
 A clean GitHub runner returned HTTP 403. The local Chrome sign-in is not shared with GitHub.
-Normal email/password Ajax login support is implemented but untested until encrypted Ajax credentials are supplied. It may still be blocked or require interactive verification.
+Encrypted Ajax credentials have now been configured. Run #4 returned login_http_403 before credentials were entered: even the ordinary sign-in page was denied to the GitHub runner. The password itself has not been tested. Cloud monitoring remains blocked; do not assume authentication or email alerts work.
 Email delivery is not active or tested until SMTP secrets are supplied. This is not yet an operational end-to-end ticket alert service.
 
 ## Behavior
