@@ -1,3 +1,4 @@
 {
-  "status": "http_error"
+  "status": "http_403",
+  "offers": []
 }
