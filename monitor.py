@@ -135,17 +135,17 @@ def observe(page, http_status=200):
     available = sum(categories.values()) >= 2
     return ("available_indication" if available else "below_threshold"), sorted(offers, key=lambda x: (x["category"], x["rate"]))
 
-def notify(offers):
+def notify(offers, setup_test=False):
     os.environ["SMTP_HOST"] = os.environ.get("SMTP_HOST") or "smtp.gmail.com"
     os.environ["MAIL_FROM"] = os.environ.get("MAIL_FROM") or os.environ.get("SMTP_USER", "")
     keys = ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM", "MAIL_TO"]
     if any(not os.environ.get(k) for k in keys):
         raise RuntimeError("SMTP secrets missing; alert not recorded as sent")
     msg = EmailMessage()
-    msg["Subject"] = "Ajax: indication of at least two regular tickets"
+    msg["Subject"] = "Ajax watcher setup test (no tickets detected)" if setup_test else "Ajax: indication of at least two regular tickets"
     msg["From"] = os.environ["MAIL_FROM"]
     msg["To"] = os.environ["MAIL_TO"]
-    msg.set_content("The Ajax quantity selector offers at least 2 regular / Official Resale tickets. Checkout availability is unverified. No tickets reserved.\n" + TABLE_URL + "\n" + json.dumps(offers))
+    msg.set_content(("Setup test only: the watcher can send email. This message does not report ticket availability.\n" if setup_test else "The Ajax quantity selector offers at least 2 regular / Official Resale tickets. Checkout availability is unverified. No tickets reserved.\n" + TABLE_URL + "\n" + json.dumps(offers)))
     with smtplib.SMTP_SSL(os.environ["SMTP_HOST"], 465, context=ssl.create_default_context(), timeout=30) as smtp:
         smtp.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
         smtp.send_message(msg)
