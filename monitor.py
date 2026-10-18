@@ -28,8 +28,8 @@ def sign_in(page):
         if any(s in text for s in ["captcha", "verify you are human", "access denied"]):
             return "login_blocked"
         page.get_by_role("textbox", name="Email Address", exact=True).fill(email)
-        page.get_by_role("textbox", name="Password", exact=True).fill(password)
-        page.get_by_role("textbox", name="Password", exact=True).press("Enter")
+        page.get_by_label("Password", exact=True).fill(password)
+        page.get_by_label("Password", exact=True).press("Enter")
         page.wait_for_timeout(8000)
         if page.locator('input[type="password"]').count():
             return "login_failed_or_interactive_verification_required"
