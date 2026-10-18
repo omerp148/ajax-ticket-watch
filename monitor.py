@@ -7,6 +7,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 from pathlib import Path
+from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
 
 URL = "https://tickets.ajax.nl/selection/event/seat?perfId=10229728133611&ot=0&gtmStepTracking=true"
@@ -14,14 +15,46 @@ TABLE_URL = "https://tickets.ajax.nl/selection/event/seat?perfId=10229728133611&
 STATE = Path("state.json")
 EXCLUDED = re.compile(r"\b(vip|premium|hospitality|business|skybox)\b", re.I)
 ALLOWED = {"regulier", "regular", "official resale"}
+def diagnose(page, response, stage):
+    # Only called before entering credentials. Never record cookies, tokens,
+    # request headers, query strings, authentication forms or account pages.
+    if not response:
+        print("Diagnostic:", stage, "no document response")
+        return
+    parsed = urlsplit(page.url)
+    data = {"stage": stage, "status": response.status,
+            "origin_path": parsed.scheme + "://" + parsed.netloc + parsed.path,
+            "server": response.headers.get("server", ""),
+            "content_type": response.headers.get("content-type", "")}
+    if response.status >= 400:
+        body = page.locator("body").inner_text(timeout=10000)[:2000]
+        body = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", "[email]", body)
+        body = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[ip]", body)
+        body = re.sub(r"[A-Za-z0-9_./+=-]{60,}", "[long token]", body)
+        data["error_text"] = body
+    print("Diagnostic:", json.dumps(data))
+
 def sign_in(page):
     email = os.environ.get("AJAX_EMAIL")
     password = os.environ.get("AJAX_PASSWORD")
     if not email or not password:
         return "ajax_credentials_required"
     try:
-        response = page.goto("https://tickets.ajax.nl/redirect/login?returnPath=https://tickets.ajax.nl/secured/content", wait_until="domcontentloaded", timeout=60000)
+        # Follow the ordinary public storefront navigation before sign-in.
+        # This establishes only the site's normal first-party session cookies.
+        response = page.goto("https://tickets.ajax.nl/content", wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(5000)
+        diagnose(page, response, "storefront")
+        if response and response.status >= 400:
+            return "storefront_http_" + str(response.status)
+        links = page.get_by_role("link", name="Sign in", exact=True)
+        if links.count() != 1:
+            return "signin_link_missing"
+        with page.expect_navigation(wait_until="domcontentloaded", timeout=60000) as navigation:
+            links.click()
+        response = navigation.value
+        page.wait_for_timeout(5000)
+        diagnose(page, response, "signin")
         text = page.locator("body").inner_text().lower()
         if response and response.status >= 400:
             return "login_http_" + str(response.status)
