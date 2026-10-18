@@ -1,0 +1,58 @@
+name: Browser compatibility diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install official Chrome and Playwright
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chrome
+      - name: Compare standard Chrome modes without credentials
+        run: |
+          cat > /tmp/diagnose_ajax.py <<'PY'
+          import json
+          import re
+          from urllib.parse import urlsplit
+          from playwright.sync_api import sync_playwright
+          def safe_url(url):
+              p = urlsplit(url)
+              return p.scheme + "://" + p.netloc + p.path
+          with sync_playwright() as p:
+              for headless in [True, False]:
+                  browser = p.chromium.launch(channel="chrome", headless=headless)
+                  page = browser.new_page(locale="en-GB")
+                  hops = []
+                  def observe(response):
+                      if response.request.resource_type == "document":
+                          hops.append({"status":response.status, "url":safe_url(response.url)})
+                  page.on("response", observe)
+                  try:
+                      r = page.goto("https://tickets.ajax.nl/content", wait_until="domcontentloaded", timeout=60000)
+                      page.wait_for_timeout(10000)
+                      data = {"headless":headless, "status":r.status, "hops":hops,
+                              "server":r.headers.get("server"), "title":page.title(),
+                              "body_bytes":len(r.body())}
+                      if r.status >= 400:
+                          body = r.text()[:3000]
+                          body = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", "[email]", body)
+                          body = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[ip]", body)
+                          body = re.sub(r"[A-Za-z0-9_./+=-]{60,}", "[token]", body)
+                          data["error_body"] = body
+                          data["error_type"] = r.headers.get("x-amzn-errortype", "")
+                          data["cache"] = r.headers.get("x-cache", "")
+                      else:
+                          data["signin_links"] = page.get_by_role("link", name="Sign in", exact=True).count()
+                      print(json.dumps(data))
+                  except Exception as error:
+                      print(json.dumps({"headless":headless,"error_class":type(error).__name__,"hops":hops}))
+                  browser.close()
+          PY
+          xvfb-run -a python /tmp/diagnose_ajax.py
