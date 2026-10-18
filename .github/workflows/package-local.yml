@@ -1,0 +1,70 @@
+name: Verify and package local Mac watcher
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  verify-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test browser
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: Validate syntax and alert behavior without network or email
+        run: |
+          python -m py_compile monitor.py local_watch.py test_observation.py
+          bash -n run-local.command
+          python -m unittest -v test_observation
+      - name: Package executable Mac launcher
+        run: |
+          mkdir -p package/ajax-ticket-watch
+          cp monitor.py local_watch.py run-local.command package/ajax-ticket-watch/
+          chmod +x package/ajax-ticket-watch/run-local.command
+          cat > package/ajax-ticket-watch/READ-ME.txt <<'TEXT'
+          AJAX TICKET WATCH — LOCAL MAC EDITION
+
+          1. Extract the whole ZIP and keep these files together.
+          2. Open run-local.command. Requires Python 3.10+ and Google Chrome.
+          3. Enter your sending Gmail and the requested alert recipient.
+             Use a Gmail app password; the hidden entry is saved in macOS Keychain.
+          4. A clearly labeled setup email tests delivery without reporting tickets.
+          5. Sign in to Ajax in the dedicated Chrome window. Complete any CAPTCHA yourself.
+          6. When the event table is visible, press Enter in Terminal.
+
+          Checks every five minutes while Terminal and Chrome stay open.
+          The launcher prevents idle sleep while it runs.
+          Ctrl+C stops monitoring. Closing the laptop or losing internet interrupts checks.
+          No purchases, cart additions, CAPTCHA bypass, proxies or paid services.
+          Authentication profile and deduplication state stay in:
+          ~/Library/Application Support/ajax-ticket-watch
+
+          This package passed offline regression tests before publication.
+          Mac execution, real email delivery and live resale layouts still require
+          validation on the user's computer. Availability alerts are indications
+          from displayed quantity controls, not checkout guarantees.
+          TEXT
+          cd package
+          zip -r ../AjaxTicketWatch-macOS.zip ajax-ticket-watch
+      - name: Publish downloadable package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > /tmp/local-release-notes.txt <<'TEXT'
+          Free local Mac alternative when hosted GitHub runners receive a CAPTCHA challenge.
+          Extract the ZIP and open run-local.command. Python 3.10+ and Chrome required.
+          The program asks for local sign-in and secure Gmail app-password entry.
+          Keep the Mac, Terminal and Chrome running. No CAPTCHA bypass or purchases.
+          Offline behavior tests passed before packaging; Mac and live email validation remain pending.
+          TEXT
+          if gh release view local-macos >/dev/null 2>&1; then
+            gh release upload local-macos AjaxTicketWatch-macOS.zip --clobber
+          else
+            gh release create local-macos AjaxTicketWatch-macOS.zip --title "Local Mac watcher" --notes-file /tmp/local-release-notes.txt
+          fi
