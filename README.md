@@ -1,55 +1,61 @@
 # ajax-ticket-watch
 
-Python and Playwright monitor, scheduled every five minutes through GitHub Actions.
+Read-only Ajax ticket monitoring in Python + Playwright. No purchases, reservations or CAPTCHA bypass.
 
-## Live deployment status — 2026-10-18
+## Current result
 
-The signed-in Chrome session successfully opened Ajax–ADO Den Haag, 22 November 2026 at 14:30.
-The best-available-seat table showed Regulier, category 405 406 420 421 (low), EUR 52, with quantity options 0 and 1. This is below the alert threshold.
-The table URL and DOM selectors were inspected on the real event.
-A clean GitHub runner returned HTTP 403. The local Chrome sign-in is not shared with GitHub.
-Encrypted Ajax credentials have now been configured. Run #4 returned login_http_403 before credentials were entered: even the ordinary sign-in page was denied to the GitHub runner. The password itself has not been tested. Cloud monitoring remains blocked; do not assume authentication or email alerts work.
-Email delivery is not active or tested until SMTP secrets are supplied. This is not yet an operational end-to-end ticket alert service.
+The hosted GitHub runner receives HTTP 403 from CloudFront.
+A diagnostic using official Chrome in both headed and headless modes reached captcha-delivery.com/captcha.
+The response explicitly contained a CAPTCHA delivery script. Therefore no more automatic cloud attempts are useful without human verification.
+The ordinary Ajax password login page was also denied before any credentials were entered.
+Cloud email alerts are NOT operational.
 
-## Behavior
+The signed-in user's Chrome opened Ajax–ADO Den Haag (22 November 2026, 14:30).
+The observed regular category 405 406 420 421 (low), EUR 52, offered quantities 0 and 1.
+This did not meet the threshold of two.
 
-- No seat selection, cart additions, reservations, purchases, or CAPTCHA solving/bypass.
-- Counts enabled quantity options in the actual best-available-seat table.
-- Distinct categories are summed; multiple tariffs within one category count only their maximum to avoid overlap.
-- Only Regulier, Regular and Official Resale rate labels are allowlisted.
+## Local Mac edition
+
+The local alternative keeps a dedicated Chrome login profile on the Mac and pauses for manual verification when necessary.
+It does not route traffic through a proxy or attempt to solve a CAPTCHA.
+
+1. Download the Mac ZIP from Releases, extract the entire folder and open run-local.command.
+2. Requires Google Chrome and Python 3.10 or newer. If Python is missing the launcher opens the official Python download page.
+3. Enter your sending Gmail and intended recipient.
+4. Enter a Gmail app password in the hidden prompt. It is stored only in macOS Keychain.
+5. A setup email is clearly labeled as a test and does not claim tickets were found.
+6. Sign in manually in the dedicated Chrome window and open the event table; then press Enter in Terminal.
+7. Keep Terminal and Chrome open. Checks run every five minutes. The launcher prevents idle sleep while running; closing the laptop or losing internet interrupts checks. Ctrl+C stops it.
+
+Profile, mail configuration and deduplication state stay beneath:
+~/Library/Application Support/ajax-ticket-watch
+
+Private files use restrictive permissions. No local session or Keychain secret is uploaded.
+Only one local watcher may run at a time.
+Uninstall by stopping the watcher and removing its private Application Support folder; the SMTP app password remains in Keychain until the user removes it.
+
+## Availability rules and limitations
+
+- Reads enabled quantity options from the inspected best-available-seat table.
+- At least two eligible tickets are required.
+- Counts distinct seat categories; multiple tariffs in the same category count only their maximum.
+- Regulier, Regular and Official Resale labels are allowed.
 - VIP, Premium, Hospitality, Business and Skybox rows are excluded.
-- Official Resale label support has not yet been verified against a live resale offer. Other resale layouts fail closed or are ignored rather than guessed.
-- Availability alerts are indications from quantity controls, not checkout confirmation.
-- Unknown pages, 403, login failures and changed layouts fail with an explicit status.
-- state.json persists observed offers and notified fingerprints. Repeated identical offers do not resend.
-- SMTP delivery and Git commits are not transactional: a crash or commit failure after mail delivery can cause a repeat.
-- Changes in offers can generate a new notification, even when some categories overlap.
+- Unknown rates and layouts never imply availability.
+- Official Resale parsing has synthetic regression coverage, but a live resale offer has not yet been observed. Other resale layouts may need an adapter update.
+- Alerts describe a quantity-control indication, not checkout confirmation or reserved seats.
+- Identical offer fingerprints are not resent. Changes may generate a new alert.
+- SMTP delivery and state writes are not transactional: a crash after delivery can cause a repeat.
 
-## Encrypted GitHub Actions secrets
+## Verification and packaging
 
-| Secret | Value |
-| --- | --- |
-| AJAX_EMAIL | Ajax email for ordinary email/password sign-in |
-| AJAX_PASSWORD | Ajax password; never a Google/Apple/Facebook password |
-| SMTP_USER | Sending Gmail address |
-| SMTP_PASSWORD | Gmail app password |
-| MAIL_TO | Recipient, already configured privately |
-| SMTP_HOST | Optional; defaults to smtp.gmail.com |
-| MAIL_FROM | Optional; defaults to SMTP_USER |
-| AJAX_STORAGE_STATE | Optional Playwright session JSON, only through a secret |
+The manual package workflow checks Python and shell syntax and runs offline Chromium regression cases before publishing a ZIP.
+The tests cover the observed one-ticket state, two tickets, distinct categories, shared category inventory, Official Resale labels, exclusions, disabled controls, unknown rates, wrong events and HTTP 403.
+These tests do not establish live Mac compatibility or live email delivery. Those remain to be verified on the user's Mac.
 
-Never commit credentials or browser storage to this public repository.
-Login attempts stop on CAPTCHA, access denial, failed credentials or interactive verification. No automatic retries of failed credentials.
-Social login and interactive MFA are not automated. Credentials might not resolve GitHub's 403 access denial.
+## Original GitHub Actions workflow
 
-## Scheduling and cost
-
-Uses standard ubuntu-latest runners in a public repository. No paid service configured.
-Cron requests every five minutes; GitHub may delay/drop runs or disable schedules after prolonged inactivity.
-The machine running Chrome does not need to remain online if the GitHub runner eventually obtains access.
-
-## Verification
-
-Each workflow compiles monitor.py before launching Chromium.
-The current live runner result and observation appear in Actions.
-A successful authenticated run and email delivery test are still required before claiming the service is working.
+watch.yml requests a run every five minutes, with concurrency and state commits.
+GitHub may delay or drop schedules. Hosted cloud access is currently blocked as described above.
+Encrypted Ajax credentials are configured but not validated, since the access refusal precedes credential entry.
+SMTP settings are intentionally not collected while hosted access is blocked.
