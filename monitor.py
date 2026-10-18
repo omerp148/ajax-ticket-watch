@@ -85,53 +85,55 @@ def inspect():
                 return auth_error, []
         response = page.goto(TABLE_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(8000)
-        text = page.locator("body").inner_text().lower()
-        if response and response.status >= 400:
-            return "http_" + str(response.status), []
-        if any(s in text for s in ["verify you are human", "access denied", "security check", "captcha"]):
-            return "blocked", []
-        if page.locator('input[type="password"]').count() or "b2clogin" in page.url:
-            return "login_required", []
-        if "requested url was not found" in text or "error page" in text:
-            return "invalid_event_or_login_required", []
-        if "ado den haag" not in text or "22 november 2026" not in text:
-            return "wrong_or_unknown_event", []
-        # Selectors observed on the real event table, 2026-10-18.
-        rows = page.locator('tr').filter(has=page.locator('select[aria-label="Quantity"]'))
-        if rows.count() == 0:
+        return observe(page, response.status if response else 200)
+
+def observe(page, http_status=200):
+    text = page.locator("body").inner_text().lower()
+    if http_status >= 400:
+        return "http_" + str(http_status), []
+    if any(s in text for s in ["verify you are human", "access denied", "security check", "captcha"]):
+        return "blocked", []
+    if page.locator('input[type="password"]').count() or "b2clogin" in page.url:
+        return "login_required", []
+    if "requested url was not found" in text or "error page" in text:
+        return "invalid_event_or_login_required", []
+    if "ado den haag" not in text or "22 november 2026" not in text:
+        return "wrong_or_unknown_event", []
+    # Selectors observed on the real event table, 2026-10-18.
+    rows = page.locator('tr').filter(has=page.locator('select[aria-label="Quantity"]'))
+    if rows.count() == 0:
+        return "unknown_layout", []
+    categories = {}
+    offers = []
+    for row in rows.all():
+        if not row.is_visible():
+            continue
+        label = row.inner_text()
+        if EXCLUDED.search(label):
+            continue
+        tariff = row.locator(".audience-subcat-name")
+        category = row.locator("th.category")
+        if tariff.count() != 1 or category.count() != 1:
             return "unknown_layout", []
-        categories = {}
-        offers = []
-        for row in rows.all():
-            if not row.is_visible():
-                continue
-            label = row.inner_text()
-            if EXCLUDED.search(label):
-                continue
-            tariff = row.locator(".audience-subcat-name")
-            category = row.locator("th.category")
-            if tariff.count() != 1 or category.count() != 1:
-                return "unknown_layout", []
-            rate = tariff.inner_text().strip()
-            if rate.casefold() not in ALLOWED:
-                # Unknown rates cannot be assumed regular.
-                continue
-            select = row.locator('select[aria-label="Quantity"]')
-            values = select.locator("option:not([disabled])").evaluate_all("(els) => els.map(e => e.value)")
-            quantities = [int(v) for v in values if v.isdigit()]
-            if not quantities or select.is_disabled():
-                continue
-            maximum = max(quantities)
-            cat = category.inner_text().strip()
-            # Multiple tariffs can share inventory: never add their quantities.
-            categories[cat] = max(categories.get(cat, 0), maximum)
-            if maximum:
-                offers.append({"category": cat, "rate": rate, "max_quantity": maximum})
-        # Distinct seat categories partition inventory. For multiple tariffs
-        # within the same category, count only the maximum to avoid overlap.
-        available = sum(categories.values()) >= 2
-        browser.close()
-        return ("available_indication" if available else "below_threshold"), sorted(offers, key=lambda x: (x["category"], x["rate"]))
+        rate = tariff.inner_text().strip()
+        if rate.casefold() not in ALLOWED:
+            # Unknown rates cannot be assumed regular.
+            continue
+        select = row.locator('select[aria-label="Quantity"]')
+        values = select.locator("option:not([disabled])").evaluate_all("(els) => els.map(e => e.value)")
+        quantities = [int(v) for v in values if v.isdigit()]
+        if not quantities or select.is_disabled():
+            continue
+        maximum = max(quantities)
+        cat = category.inner_text().strip()
+        # Multiple tariffs can share inventory: never add their quantities.
+        categories[cat] = max(categories.get(cat, 0), maximum)
+        if maximum:
+            offers.append({"category": cat, "rate": rate, "max_quantity": maximum})
+    # Distinct seat categories partition inventory. For multiple tariffs
+    # within the same category, count only the maximum to avoid overlap.
+    available = sum(categories.values()) >= 2
+    return ("available_indication" if available else "below_threshold"), sorted(offers, key=lambda x: (x["category"], x["rate"]))
 
 def notify(offers):
     os.environ["SMTP_HOST"] = os.environ.get("SMTP_HOST") or "smtp.gmail.com"
