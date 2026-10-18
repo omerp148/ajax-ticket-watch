@@ -14,6 +14,30 @@ TABLE_URL = "https://tickets.ajax.nl/selection/event/seat?perfId=10229728133611&
 STATE = Path("state.json")
 EXCLUDED = re.compile(r"\b(vip|premium|hospitality|business|skybox)\b", re.I)
 ALLOWED = {"regulier", "regular", "official resale"}
+def sign_in(page):
+    email = os.environ.get("AJAX_EMAIL")
+    password = os.environ.get("AJAX_PASSWORD")
+    if not email or not password:
+        return "ajax_credentials_required"
+    try:
+        response = page.goto("https://tickets.ajax.nl/redirect/login?returnPath=https://tickets.ajax.nl/secured/content", wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(5000)
+        text = page.locator("body").inner_text().lower()
+        if response and response.status >= 400:
+            return "login_http_" + str(response.status)
+        if any(s in text for s in ["captcha", "verify you are human", "access denied"]):
+            return "login_blocked"
+        page.get_by_role("textbox", name="Email Address", exact=True).fill(email)
+        page.get_by_role("textbox", name="Password", exact=True).fill(password)
+        page.get_by_role("textbox", name="Password", exact=True).press("Enter")
+        page.wait_for_timeout(8000)
+        if page.locator('input[type="password"]').count():
+            return "login_failed_or_interactive_verification_required"
+        return None
+    except Exception:
+        # Do not log credential-bearing browser call diagnostics.
+        return "login_error"
+
 def inspect():
     with sync_playwright() as p:
         browser = p.chromium.launch()
@@ -22,6 +46,10 @@ def inspect():
         session = os.environ.get("AJAX_STORAGE_STATE")
         context = browser.new_context(locale="en-GB", **({"storage_state": json.loads(session)} if session else {}))
         page = context.new_page()
+        if os.environ.get("AJAX_EMAIL") and os.environ.get("AJAX_PASSWORD"):
+            auth_error = sign_in(page)
+            if auth_error:
+                return auth_error, []
         response = page.goto(TABLE_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(8000)
         text = page.locator("body").inner_text().lower()
@@ -66,14 +94,15 @@ def inspect():
             categories[cat] = max(categories.get(cat, 0), maximum)
             if maximum:
                 offers.append({"category": cat, "rate": rate, "max_quantity": maximum})
-        # A selectable quantity of two in a single row is an authoritative
-        # indication of two tickets without attempting to reserve them.
-        # Cross-category totals are not counted until overlap can be ruled out.
-        available = any(q >= 2 for q in categories.values())
+        # Distinct seat categories partition inventory. For multiple tariffs
+        # within the same category, count only the maximum to avoid overlap.
+        available = sum(categories.values()) >= 2
         browser.close()
         return ("available_indication" if available else "below_threshold"), sorted(offers, key=lambda x: (x["category"], x["rate"]))
 
 def notify(offers):
+    os.environ["SMTP_HOST"] = os.environ.get("SMTP_HOST") or "smtp.gmail.com"
+    os.environ["MAIL_FROM"] = os.environ.get("MAIL_FROM") or os.environ.get("SMTP_USER", "")
     keys = ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM", "MAIL_TO"]
     if any(not os.environ.get(k) for k in keys):
         raise RuntimeError("SMTP secrets missing; alert not recorded as sent")
